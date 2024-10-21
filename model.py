@@ -1,75 +1,63 @@
-import numpy as np
 import pandas as pd
-import re
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
-from sklearn.preprocessing import LabelEncoder
-import pickle
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+import scipy.stats as stats
 
-# Getting Data
-file_path = 'medical_dataset.csv'
-df = pd.read_csv(file_path,encoding='latin-1')
-print(df.head())
+df = pd.read_csv('D:\\Deployment\\Heart_Attack\\dataset.csv')
+df.head()
 
-def clean_text_func(text):
+# Feature Selection:-
+df.drop(['oldpeak','slp','thall'], axis = 1, inplace = True)
+
+# Feature Scaling:-
+x = df.drop('output', axis = 1)
+y = df['output']
+scal = MinMaxScaler()
+scal_df = scal.fit_transform(x)
+df1 = pd.DataFrame(scal_df, columns = df.columns[:-1])
+
+x = df1
+y = df['output']
+
+
+# Outliers Treatment:-
+
+def outlier_data(df):
+    df_outlier = df.copy()
+    for column in df.columns:
+        upper_limit = df[column].mean() + 3*df[column].std()
+        lower_limit = df[column].mean() - 3*df[column].std()
+        
+        df_outlier[column] = df_outlier[column].apply(lambda x: upper_limit if x > upper_limit else x)
+        
+        df_outlier[column] = df_outlier[column].apply(lambda x: lower_limit if x < lower_limit else x)
     
-    text = str(text) 
-    text = text.lower()
-    # Clean the text
-    text = re.sub(r"[^A-Za-z0-9^,!?.\/'+]", " ", text)
-    text = re.sub(r"\+", " ", text)
-    text = re.sub(r",", " ", text)
-    text = re.sub(r"\.", " ", text)
-    text = re.sub(r"!", " ", text)
-    text = re.sub(r"\?", " ", text)
-    text = re.sub(r"'", " ", text)
-    text = re.sub(r":", " : ", text)
-    text = re.sub(r"\s{2,}", " ", text)
-    text = re.sub(r"[0-9]", " ", text)
-    return text
+    return df_outlier  
 
-df['Description'] = df['Description'].apply(lambda x: clean_text_func(x))
+df = outlier_data(df1)
 
-tfidf = TfidfVectorizer(stop_words="english")  
-X = tfidf.fit_transform(df['Description']).toarray()
+# Balancing data:-
+x = df
+from imblearn.under_sampling import ClusterCentroids
+cc = ClusterCentroids(random_state = 42)
+x_res,y_res = cc.fit_resample(x,y)
 
-label_encoder = LabelEncoder()
-y = label_encoder.fit_transform(df['Disease'])
+# Splite the data:-
+x = x_res
+y = y_res
+from sklearn.model_selection import train_test_split
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.30, random_state=42)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=42)
+# With Logistic Regression:-
 
-# With ANN:-
+from sklearn.linear_model import LogisticRegression
+model = LogisticRegression()
+model.fit(x_train,y_train)
 
-model = Sequential()
-
-# Input layer and two hidden layers with Dropout to prevent overfitting
-model.add(Dense(512, input_shape=(X_train.shape[1],), activation='relu'))
-model.add(BatchNormalization())
-model.add(Dropout(0.1))  # Dropout to prevent overfitting
-
-model.add(Dense(256, activation='relu'))
-model.add(BatchNormalization())
-model.add(Dropout(0.1))
-
-model.add(Dense(128, activation='relu'))
-model.add(BatchNormalization())
-#model.add(Dropout(0.1))
-
-# Output layer (classification problem, we'll use softmax)
-model.add(Dense(len(np.unique(y)), activation='softmax'))
-
-model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-
-# Train the model
-history = model.fit(X_train, y_train, epochs=50, batch_size=10, validation_split=0.1)
-
-
-model.save('model.keras')
-#pickle.dump(model,open("model.pkl","wb"))
-pickle.dump(tfidf,open("vectorizer.pkl","wb"))
-pickle.dump(label_encoder,open("label_encoder.pkl", "wb"))
+import pickle
+pickle.dump(model, open("model.pkl", "wb"))
+pickle.dump(scal, open("scaler.pkl", "wb"))
 
 import os
 os.getcwd()
